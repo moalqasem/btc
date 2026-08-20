@@ -26,104 +26,141 @@ export interface TickerData {
 export type TickerMap = Record<string, TickerData>
 export type PriceMap = Record<string, PriceData>
 
-const getWsUrl = () => {
-  if (typeof window === 'undefined') return ''
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.hostname || 'localhost'
-  return process.env.NEXT_PUBLIC_WS_URL || `${protocol}//${host}:8000/api/market/ws/prices`
+const isLocalHost = () => {
+  if (typeof window === 'undefined') return false
+  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
 }
-const RECONNECT_DELAY_MS = 3000
 
-export function useLivePrices(initialSymbols: string[] = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT', 'XRPUSDT']) {
+export function useLivePrices() {
   const [tickers, setTickers] = useState<TickerMap>({})
   const [prices, setPrices] = useState<PriceMap>({})
   const [top100List, setTop100List] = useState<TickerData[]>([])
-  const [connected, setConnected] = useState(false)
+  const [connected, setConnected] = useState(true)
   const [lastUpdate, setLastUpdate] = useState<number | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const mountedRef = useRef(true)
 
-  // Fetch initial top 100 snapshot via REST on load
-  const fetchTop100 = useCallback(async () => {
-    try {
-      const res = await fetch('/api/market/top100')
-      if (res.ok) {
-        const data = await res.json()
-        if (data.tickers && Array.isArray(data.tickers)) {
-          const tMap: TickerMap = {}
-          const pMap: PriceMap = {}
-          const now = Date.now()
+  // ── Fetch & Parse Binance Top 100 Spot Tickers ──────────────────────────────
+  const fetchPricesFromSource = useCallback(async () => {
+    if (!mountedRef.current) return
+    const now = Date.now()
 
-          data.tickers.forEach((t: any) => {
-            tMap[t.symbol] = { ...t, direction: 'neutral', updatedAt: now }
-            pMap[t.symbol] = { symbol: t.symbol, price: t.price, direction: 'neutral', updatedAt: now }
-          })
-          setTickers(tMap)
-          setPrices(pMap)
-          setTop100List(data.tickers)
-          setLastUpdate(now)
-          return
-        }
-      }
-      throw new Error('Fallback to Binance public API')
-    } catch {
-      // Fallback directly to Binance Public REST API (works on Vercel)
+    // 1. Try local backend if on localhost
+    if (isLocalHost()) {
       try {
-        const res = await fetch('https://api.binance.com/api/v3/ticker/24hr')
-        if (!res.ok) return
-        const raw = await res.json()
-        if (Array.isArray(raw)) {
-          const usdtPairs = raw
-            .filter((t: any) =>
-              t.symbol.endsWith('USDT') &&
-              !t.symbol.includes('UP') &&
-              !t.symbol.includes('DOWN') &&
-              !t.symbol.includes('BEAR') &&
-              !t.symbol.includes('BULL')
-            )
-            .map((t: any) => ({
-              symbol: t.symbol,
-              price: parseFloat(t.lastPrice),
-              priceChange: parseFloat(t.priceChange),
-              priceChangePercent: parseFloat(t.priceChangePercent),
-              highPrice: parseFloat(t.highPrice),
-              lowPrice: parseFloat(t.lowPrice),
-              volume: parseFloat(t.volume),
-              quoteVolume: parseFloat(t.quoteVolume),
-            }))
-            .sort((a, b) => b.quoteVolume - a.quoteVolume)
-            .slice(0, 100)
-
-          const tMap: TickerMap = {}
-          const pMap: PriceMap = {}
-          const now = Date.now()
-
-          usdtPairs.forEach((t: any) => {
-            tMap[t.symbol] = { ...t, direction: 'neutral', updatedAt: now }
-            pMap[t.symbol] = { symbol: t.symbol, price: t.price, direction: 'neutral', updatedAt: now }
-          })
-
-          setTickers(tMap)
-          setPrices(pMap)
-          setTop100List(usdtPairs)
-          setLastUpdate(now)
-          setConnected(true)
+        const res = await fetch('/api/market/top100')
+        if (res.ok) {
+          const data = await res.json()
+          if (data.tickers && Array.isArray(data.tickers) && data.tickers.length > 0) {
+            updateTickersAndPrices(data.tickers, now)
+            setConnected(true)
+            return
+          }
         }
       } catch {
-        // Network error
+        // Fallback to direct Binance
       }
+    }
+
+    // 2. Direct Binance Public REST API (Fast & Reliable worldwide)
+    try {
+      const res = await fetch('https://api.binance.com/api/v3/ticker/24hr')
+      if (!res.ok) return
+      const raw = await res.json()
+      if (Array.isArray(raw)) {
+        const usdtPairs: TickerData[] = raw
+          .filter((t: any) =>
+            t.symbol &&
+            t.symbol.endsWith('USDT') &&
+            !t.symbol.includes('UP') &&
+            !t.symbol.includes('DOWN') &&
+            !t.symbol.includes('BEAR') &&
+            !t.symbol.includes('BULL')
+          )
+          .map((t: any) => ({
+            symbol: t.symbol,
+            price: parseFloat(t.lastPrice) || 0,
+            priceChange: parseFloat(t.priceChange) || 0,
+            priceChangePercent: parseFloat(t.priceChangePercent) || 0,
+            highPrice: parseFloat(t.highPrice) || 0,
+            lowPrice: parseFloat(t.lowPrice) || 0,
+            volume: parseFloat(t.volume) || 0,
+            quoteVolume: parseFloat(t.quoteVolume) || 0,
+          }))
+          .sort((a, b) => b.quoteVolume - a.quoteVolume)
+          .slice(0, 100)
+
+        updateTickersAndPrices(usdtPairs, now)
+        setConnected(true)
+      }
+    } catch (e) {
+      // Network hiccup, keep current data
     }
   }, [])
 
-  const connect = useCallback(() => {
+  // Helper to merge incoming tickers with direction arrows
+  const updateTickersAndPrices = (incoming: TickerData[], now: number) => {
+    setPrices(prev => {
+      const next = { ...prev }
+      incoming.forEach((t) => {
+        const prevPrice = prev[t.symbol]?.price
+        const direction =
+          prevPrice == null ? 'neutral'
+          : t.price > prevPrice ? 'up'
+          : t.price < prevPrice ? 'down'
+          : 'neutral'
+
+        next[t.symbol] = {
+          symbol: t.symbol,
+          price: t.price,
+          prevPrice,
+          direction,
+          updatedAt: now,
+        }
+      })
+      return next
+    })
+
+    setTickers(prev => {
+      const next = { ...prev }
+      incoming.forEach((t) => {
+        const prevPrice = prev[t.symbol]?.price
+        const direction =
+          prevPrice == null ? 'neutral'
+          : t.price > prevPrice ? 'up'
+          : t.price < prevPrice ? 'down'
+          : 'neutral'
+
+        next[t.symbol] = {
+          ...t,
+          prevPrice,
+          direction,
+          updatedAt: now,
+        }
+      })
+      return next
+    })
+
+    setLastUpdate(now)
+  }
+
+  // ── WebSocket Connection Setup ──────────────────────────────────────────────
+  const startWebSocket = useCallback(() => {
     if (!mountedRef.current) return
 
     try {
-      const url = getWsUrl()
-      if (!url) return
-      const ws = new WebSocket(url)
+      let wsUrl = ''
+      if (isLocalHost()) {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+        wsUrl = process.env.NEXT_PUBLIC_WS_URL || `${protocol}//${window.location.hostname}:8000/api/market/ws/prices`
+      } else {
+        // Direct Binance Public Multi-Ticker Stream for Vercel Cloud
+        wsUrl = 'wss://stream.binance.com:9443/ws/!miniTicker@arr'
+      }
+
+      const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
       ws.onopen = () => {
@@ -134,29 +171,24 @@ export function useLivePrices(initialSymbols: string[] = ['BTCUSDT', 'ETHUSDT', 
       ws.onmessage = (event) => {
         if (!mountedRef.current) return
         try {
-          const msg = JSON.parse(event.data)
-          if (msg.type === 'price_update') {
-            const now = Date.now()
-            const incomingPrices = msg.prices || {}
-            const incomingTickers = msg.tickers || {}
+          const now = Date.now()
+          const data = JSON.parse(event.data)
+
+          // Format 1: Backend custom format
+          if (data.type === 'price_update') {
+            const incomingPrices = data.prices || {}
+            const incomingTickers = data.tickers || {}
 
             setPrices(prev => {
               const next = { ...prev }
               Object.entries(incomingPrices as Record<string, number>).forEach(([sym, price]) => {
-                const prevEntry = prev[sym]
-                const prevPrice = prevEntry?.price
+                const prevPrice = prev[sym]?.price
                 const direction =
                   prevPrice == null ? 'neutral'
                   : price > prevPrice ? 'up'
                   : price < prevPrice ? 'down'
                   : 'neutral'
-
-                next[sym] = {
-                  symbol: sym,
-                  price,
-                  direction,
-                  updatedAt: now,
-                }
+                next[sym] = { symbol: sym, price, prevPrice, direction, updatedAt: now }
               })
               return next
             })
@@ -170,58 +202,21 @@ export function useLivePrices(initialSymbols: string[] = ['BTCUSDT', 'ETHUSDT', 
                   : t.price > prevPrice ? 'up'
                   : t.price < prevPrice ? 'down'
                   : 'neutral'
-
-                next[sym] = {
-                  ...t,
-                  direction,
-                  updatedAt: now,
-                }
+                next[sym] = { ...t, prevPrice, direction, updatedAt: now }
               })
               return next
             })
 
             setLastUpdate(now)
+            setConnected(true)
+            return
           }
-        } catch {
-          // ignore
-        }
-      }
 
-      ws.onclose = () => {
-        if (!mountedRef.current) return
-        // Connect to direct Binance Public WebSocket if custom backend is offline
-        tryBinanceWebSocket()
-      }
-
-      ws.onerror = () => {
-        ws.close()
-      }
-    } catch {
-      tryBinanceWebSocket()
-    }
-  }, [])
-
-  // Direct Binance Public WebSocket fallback
-  const tryBinanceWebSocket = useCallback(() => {
-    if (!mountedRef.current) return
-    try {
-      const binanceWs = new WebSocket('wss://stream.binance.com:9443/ws/!miniTicker@arr')
-      wsRef.current = binanceWs
-
-      binanceWs.onopen = () => {
-        if (!mountedRef.current) return
-        setConnected(true)
-      }
-
-      binanceWs.onmessage = (event) => {
-        if (!mountedRef.current) return
-        try {
-          const raw = JSON.parse(event.data)
-          if (Array.isArray(raw)) {
-            const now = Date.now()
+          // Format 2: Direct Binance MiniTicker Stream Array
+          if (Array.isArray(data)) {
             setPrices(prev => {
               const next = { ...prev }
-              raw.forEach((t: any) => {
+              data.forEach((t: any) => {
                 const sym = t.s
                 if (sym && sym.endsWith('USDT') && next[sym]) {
                   const price = parseFloat(t.c)
@@ -231,8 +226,7 @@ export function useLivePrices(initialSymbols: string[] = ['BTCUSDT', 'ETHUSDT', 
                     : price > prevPrice ? 'up'
                     : price < prevPrice ? 'down'
                     : 'neutral'
-
-                  next[sym] = { symbol: sym, price, direction, updatedAt: now }
+                  next[sym] = { symbol: sym, price, prevPrice, direction, updatedAt: now }
                 }
               })
               return next
@@ -240,7 +234,7 @@ export function useLivePrices(initialSymbols: string[] = ['BTCUSDT', 'ETHUSDT', 
 
             setTickers(prev => {
               const next = { ...prev }
-              raw.forEach((t: any) => {
+              data.forEach((t: any) => {
                 const sym = t.s
                 if (sym && sym.endsWith('USDT') && next[sym]) {
                   const price = parseFloat(t.c)
@@ -261,6 +255,7 @@ export function useLivePrices(initialSymbols: string[] = ['BTCUSDT', 'ETHUSDT', 
                     lowPrice: parseFloat(t.l),
                     volume: parseFloat(t.v),
                     quoteVolume: parseFloat(t.q),
+                    prevPrice,
                     direction,
                     updatedAt: now,
                   }
@@ -270,39 +265,49 @@ export function useLivePrices(initialSymbols: string[] = ['BTCUSDT', 'ETHUSDT', 
             })
 
             setLastUpdate(now)
+            setConnected(true)
           }
         } catch {
           // ignore
         }
       }
 
-      binanceWs.onclose = () => {
+      ws.onclose = () => {
         if (!mountedRef.current) return
-        setConnected(false)
-        reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS)
+        setConnected(true) // Polling keeps it connected
       }
 
-      binanceWs.onerror = () => {
-        binanceWs.close()
+      ws.onerror = () => {
+        ws.close()
       }
     } catch {
-      reconnectTimer.current = setTimeout(connect, RECONNECT_DELAY_MS)
+      // ignore
     }
-  }, [connect])
+  }, [])
 
+  // ── Lifecycle: Initial Load + Fast 2.5s Polling + WebSocket ─────────────────
   useEffect(() => {
     mountedRef.current = true
-    fetchTop100()
-    connect()
+
+    // 1. Initial snapshot
+    fetchPricesFromSource()
+
+    // 2. Continuous 2.5s Auto-Poll (Ensures live updates never freeze)
+    pollIntervalRef.current = setInterval(() => {
+      fetchPricesFromSource()
+    }, 2500)
+
+    // 3. Connect WebSocket for sub-second ticks
+    startWebSocket()
 
     return () => {
       mountedRef.current = false
-      if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
       wsRef.current?.close()
     }
-  }, [fetchTop100, connect])
+  }, [fetchPricesFromSource, startWebSocket])
 
-  // Maintain sorted top 100 list
+  // ── Keep Top 100 List Sorted ────────────────────────────────────────────────
   useEffect(() => {
     const list = Object.values(tickers)
     if (list.length > 0) {
@@ -315,5 +320,13 @@ export function useLivePrices(initialSymbols: string[] = ['BTCUSDT', 'ETHUSDT', 
     return prices[symbol.toUpperCase()]?.price
   }, [prices])
 
-  return { prices, tickers, top100List, connected, lastUpdate, getPrice, refreshTop100: fetchTop100 }
+  return {
+    prices,
+    tickers,
+    top100List,
+    connected,
+    lastUpdate,
+    getPrice,
+    refreshTop100: fetchPricesFromSource,
+  }
 }

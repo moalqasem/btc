@@ -8,6 +8,7 @@ import QuickTradeCard from '@/components/trading/QuickTradeCard'
 import LedgerTable from '@/components/portfolio/LedgerTable'
 import StrategyPanel from '@/components/strategies/StrategyPanel'
 import ActiveBotsCard from '@/components/strategies/ActiveBotsCard'
+import clsx from 'clsx'
 import { useTrading } from '@/context/TradingContext'
 
 const CandlestickChart = dynamic(() => import('@/components/chart/CandlestickChart'), {
@@ -88,11 +89,44 @@ export default function SimulatorPage() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
-            className="space-y-4 max-w-[1550px] mx-auto"
+            className="space-y-3 sm:space-y-4 max-w-[1550px] mx-auto"
           >
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-              {/* Left Column: Top 100 Market Watch (4 cols) */}
-              <div className="lg:col-span-4 xl:col-span-3 h-[680px]">
+            {/* Quick Coin Selector Chips (Horizontal Scroll on Mobile) */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+              {['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'DOGEUSDT', 'ADAUSDT', 'AVAXUSDT'].map((sym) => {
+                const tick = tickers[sym]
+                const isSelected = selectedSymbol === sym
+                const clean = sym.replace('USDT', '')
+                const pct = tick?.priceChangePercent || 0
+                return (
+                  <button
+                    key={sym}
+                    onClick={() => setSelectedSymbol(sym)}
+                    className={clsx(
+                      'flex-shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-mono transition-all',
+                      isSelected
+                        ? 'bg-accent-blue/15 border-accent-blue text-text-primary shadow-sm'
+                        : 'bg-bg-surface border-bg-border text-text-secondary hover:text-text-primary hover:bg-bg-elevated'
+                    )}
+                  >
+                    <span className="font-bold">{clean}</span>
+                    <span className="text-[11px] font-medium text-text-muted">
+                      ${tick ? (tick.price > 100 ? tick.price.toFixed(2) : tick.price.toFixed(3)) : '—'}
+                    </span>
+                    <span className={clsx(
+                      'text-[10px] font-semibold',
+                      pct >= 0 ? 'text-bull' : 'text-bear'
+                    )}>
+                      {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start">
+              {/* Left Column on Desktop: Top 100 Market Watch (Hidden on small mobile, or placed after chart) */}
+              <div className="order-2 lg:order-1 lg:col-span-4 xl:col-span-3 h-[420px] lg:h-[680px]">
                 <MarketWatch
                   tickers={tickers}
                   top100List={top100List}
@@ -101,13 +135,13 @@ export default function SimulatorPage() {
                 />
               </div>
 
-              {/* Middle Column: Chart & Header (8 cols) */}
-              <div className="lg:col-span-8 xl:col-span-6 space-y-4">
+              {/* Middle Column: Chart & Header */}
+              <div className="order-1 lg:order-2 lg:col-span-8 xl:col-span-6 space-y-3 sm:space-y-4">
                 {/* Chart Card */}
-                <div className="card bg-bg-surface border-bg-border p-4 flex flex-col" style={{ minHeight: '520px' }}>
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-3 border-b border-bg-border pb-2.5">
+                <div className="card bg-bg-surface border-bg-border p-3 sm:p-4 flex flex-col" style={{ minHeight: '420px' }}>
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2 sm:mb-3 border-b border-bg-border pb-2">
                     <div className="flex items-center gap-2">
-                      <h2 className="font-bold text-text-primary text-base">
+                      <h2 className="font-bold text-text-primary text-sm sm:text-base">
                         {selectedSymbol}
                       </h2>
                       <span className="badge-neutral text-[10px]">Binance Spot</span>
@@ -115,11 +149,11 @@ export default function SimulatorPage() {
 
                     {/* Price & 24h Change */}
                     {tickers[selectedSymbol] && (
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono font-bold text-lg text-text-primary">
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <span className="font-mono font-bold text-base sm:text-lg text-text-primary">
                           ${currentPrice ? currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: currentPrice > 100 ? 2 : 4 }) : '—'}
                         </span>
-                        <span className={`font-mono text-xs font-semibold px-2 py-0.5 rounded ${
+                        <span className={`font-mono text-xs font-semibold px-1.5 sm:px-2 py-0.5 rounded ${
                           tickers[selectedSymbol].priceChangePercent >= 0 ? 'bg-bull/15 text-bull' : 'bg-bear/15 text-bear'
                         }`}>
                           {tickers[selectedSymbol].priceChangePercent >= 0 ? '+' : ''}{tickers[selectedSymbol].priceChangePercent.toFixed(2)}%
@@ -128,7 +162,7 @@ export default function SimulatorPage() {
                     )}
                   </div>
 
-                  <div className="flex-1 w-full" style={{ minHeight: '430px' }}>
+                  <div className="flex-1 w-full min-h-[320px] sm:min-h-[380px]">
                     <CandlestickChart
                       symbol={selectedSymbol}
                       gridLevels={gridLevels}
@@ -148,8 +182,8 @@ export default function SimulatorPage() {
                 />
               </div>
 
-              {/* Right Column: Execution Engine Card & Strategy Launcher (3 cols) */}
-              <div className="lg:col-span-12 xl:col-span-3 space-y-4">
+              {/* Right Column: Execution Engine Card & Strategy Launcher */}
+              <div className="order-3 lg:order-3 lg:col-span-12 xl:col-span-3 space-y-3 sm:space-y-4">
                 <QuickTradeCard
                   symbol={selectedSymbol}
                   currentPrice={currentPrice}

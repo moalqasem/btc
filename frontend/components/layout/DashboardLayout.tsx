@@ -28,7 +28,7 @@ interface Props {
 
 export default function DashboardLayout({
   children,
-  activeMainTab,
+  activeMainTab = 'market',
   onSelectMainTab,
   totalPortfolioValue,
   totalPnl,
@@ -47,8 +47,8 @@ export default function DashboardLayout({
 
   return (
     <div className="flex h-screen overflow-hidden bg-bg-base text-text-primary">
-      {/* ── Sidebar ──────────────────────────────────────── */}
-      <aside className="w-56 flex-shrink-0 bg-bg-surface border-r border-bg-border flex flex-col z-20">
+      {/* ── Desktop Sidebar (Hidden on Mobile) ──────────────────────── */}
+      <aside className="hidden md:flex w-56 flex-shrink-0 bg-bg-surface border-r border-bg-border flex-col z-20">
         {/* Logo */}
         <div className="p-4 border-b border-bg-border">
           <div className="flex items-center gap-2.5">
@@ -64,14 +64,13 @@ export default function DashboardLayout({
 
         {/* Navigation */}
         <nav className="flex-1 p-3 space-y-1">
-          {/* Main Simulator / Market View */}
           {onSelectMainTab ? (
             <>
               <button
                 onClick={() => onSelectMainTab('market')}
                 className={clsx(
                   'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all duration-150',
-                  activeMainTab === 'market'
+                  activeMainTab === 'market' && pathname === '/'
                     ? 'bg-accent-blue/15 text-accent-blue border border-accent-blue/30 shadow-sm'
                     : 'text-text-secondary hover:text-text-primary hover:bg-bg-elevated'
                 )}
@@ -151,7 +150,7 @@ export default function DashboardLayout({
             )}
           >
             {isConnected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-            <span>{isConnected ? 'Live (5s Stream)' : 'Reconnecting...'}</span>
+            <span>{isConnected ? 'Live (2.5s Stream)' : 'Reconnecting...'}</span>
             {isConnected && <span className="w-2 h-2 rounded-full bg-bull ml-auto animate-pulse" />}
           </div>
         </div>
@@ -159,49 +158,137 @@ export default function DashboardLayout({
 
       {/* ── Main Content Area ────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Header */}
-        <header className="h-14 bg-bg-surface border-b border-bg-border flex items-center px-5 gap-6 flex-shrink-0 z-10">
+        {/* Top Header (Responsive) */}
+        <header className="h-14 bg-bg-surface border-b border-bg-border flex items-center px-3 sm:px-5 gap-3 sm:gap-6 flex-shrink-0 z-10 justify-between">
+          {/* Mobile Logo / Brand */}
+          <div className="flex md:hidden items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-accent-blue flex items-center justify-center shadow-glow">
+              <TrendingUp className="w-3.5 h-3.5 text-white" />
+            </div>
+            <span className="font-bold text-text-primary text-xs">SpotSim</span>
+          </div>
+
           {/* Live Balance */}
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-bg-elevated flex items-center justify-center text-accent-blue">
-              <DollarSign className="w-4 h-4" />
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-bg-elevated flex items-center justify-center text-accent-blue flex-shrink-0">
+              <DollarSign className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
             <div>
-              <span className="text-[10px] text-text-muted uppercase tracking-wider block">Mock Portfolio Value</span>
-              <p className="font-mono font-bold text-text-primary text-sm">
-                ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
+              <span className="text-[9px] sm:text-[10px] text-text-muted uppercase tracking-wider block leading-none mb-0.5">Balance</span>
+              <p className="font-mono font-bold text-text-primary text-xs sm:text-sm leading-none">
+                ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
             </div>
           </div>
 
           {/* P&L */}
-          <div className="flex items-center gap-2 border-l border-bg-border pl-4">
-            <span className="text-xs text-text-muted">P&L:</span>
+          <div className="flex items-center gap-1.5 sm:gap-2 border-l border-bg-border pl-2.5 sm:pl-4">
+            <span className="text-[11px] sm:text-xs text-text-muted">P&L:</span>
             <span
               className={clsx(
-                'font-mono font-bold text-xs',
+                'font-mono font-bold text-[11px] sm:text-xs',
                 pnl >= 0 ? 'text-bull' : 'text-bear'
               )}
             >
-              {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)} ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)
+              {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+              <span className="hidden xs:inline"> ({pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)</span>
             </span>
           </div>
 
-          <div className="flex-1" />
+          <div className="hidden sm:flex flex-1" />
 
-          {/* Clock & Update */}
-          {lastUpdateTime && (
-            <div className="flex items-center gap-1.5 text-xs text-text-muted font-mono" suppressHydrationWarning>
-              <Clock className="w-3.5 h-3.5" />
-              <span suppressHydrationWarning>{new Date(lastUpdateTime).toLocaleTimeString()}</span>
+          {/* Connection Status Dot (Mobile) */}
+          <div className="flex items-center gap-1.5">
+            <div className={clsx(
+              'flex items-center gap-1 text-[11px] px-2 py-1 rounded font-medium',
+              isConnected ? 'text-bull bg-bull/10' : 'text-bear bg-bear/10'
+            )}>
+              <span className={clsx('w-1.5 h-1.5 rounded-full', isConnected ? 'bg-bull animate-pulse' : 'bg-bear')} />
+              <span className="hidden sm:inline">{isConnected ? 'Live Stream' : 'Connecting'}</span>
             </div>
-          )}
+
+            {/* Clock & Update */}
+            {lastUpdateTime && (
+              <div className="hidden md:flex items-center gap-1.5 text-xs text-text-muted font-mono" suppressHydrationWarning>
+                <Clock className="w-3.5 h-3.5" />
+                <span suppressHydrationWarning>{new Date(lastUpdateTime).toLocaleTimeString()}</span>
+              </div>
+            )}
+          </div>
         </header>
 
-        {/* Dynamic Page Content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6 bg-bg-base">
+        {/* Dynamic Page Content with bottom padding on mobile */}
+        <main className="flex-1 overflow-y-auto p-2.5 sm:p-4 md:p-6 pb-20 md:pb-6 bg-bg-base">
           {children}
         </main>
+
+        {/* ── Mobile Bottom Navigation Bar (Visible only on Mobile < md) ── */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-bg-surface/95 backdrop-blur-lg border-t border-bg-border flex items-center justify-around px-2 py-1.5 shadow-lg">
+          {onSelectMainTab ? (
+            <>
+              <button
+                onClick={() => onSelectMainTab('market')}
+                className={clsx(
+                  'flex flex-col items-center justify-center py-1 px-3 rounded-lg text-[10px] font-semibold transition-all',
+                  activeMainTab === 'market' && pathname === '/'
+                    ? 'text-accent-blue'
+                    : 'text-text-muted hover:text-text-primary'
+                )}
+              >
+                <Activity className="w-4 h-4 mb-0.5" />
+                <span>Market</span>
+              </button>
+
+              <button
+                onClick={() => onSelectMainTab('portfolio')}
+                className={clsx(
+                  'flex flex-col items-center justify-center py-1 px-3 rounded-lg text-[10px] font-semibold transition-all',
+                  activeMainTab === 'portfolio'
+                    ? 'text-accent-blue'
+                    : 'text-text-muted hover:text-text-primary'
+                )}
+              >
+                <Wallet className="w-4 h-4 mb-0.5" />
+                <span>Wallet</span>
+              </button>
+
+              <button
+                onClick={() => onSelectMainTab('strategies')}
+                className={clsx(
+                  'flex flex-col items-center justify-center py-1 px-3 rounded-lg text-[10px] font-semibold transition-all',
+                  activeMainTab === 'strategies'
+                    ? 'text-accent-blue'
+                    : 'text-text-muted hover:text-text-primary'
+                )}
+              >
+                <Cpu className="w-4 h-4 mb-0.5" />
+                <span>Bots</span>
+              </button>
+            </>
+          ) : (
+            <Link
+              href="/"
+              className={clsx(
+                'flex flex-col items-center justify-center py-1 px-3 rounded-lg text-[10px] font-semibold transition-all',
+                pathname === '/' ? 'text-accent-blue' : 'text-text-muted hover:text-text-primary'
+              )}
+            >
+              <Activity className="w-4 h-4 mb-0.5" />
+              <span>Simulator</span>
+            </Link>
+          )}
+
+          <Link
+            href="/backtest"
+            className={clsx(
+              'flex flex-col items-center justify-center py-1 px-3 rounded-lg text-[10px] font-semibold transition-all',
+              pathname === '/backtest' ? 'text-accent-blue' : 'text-text-muted hover:text-text-primary'
+            )}
+          >
+            <BarChart2 className="w-4 h-4 mb-0.5" />
+            <span>Backtest</span>
+          </Link>
+        </nav>
       </div>
     </div>
   )

@@ -107,6 +107,7 @@ export default function CandlestickChart({
     setLoading(true)
     setError(null)
 
+    // Try custom backend first, fallback to direct Binance public API
     axios
       .get(`/api/market/klines/${symbol}?interval=${activeInterval}&limit=300`)
       .then((res) => {
@@ -121,6 +122,24 @@ export default function CandlestickChart({
           .sort((a: any, b: any) => Number(a.time) - Number(b.time))
         candleSeriesRef.current?.setData(candles)
         chartRef.current?.timeScale().fitContent()
+      })
+      .catch(() => {
+        // Fallback: Fetch directly from Binance Public API
+        return axios
+          .get(`https://api.binance.com/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=${activeInterval}&limit=300`)
+          .then((res) => {
+            const candles: CandlestickData[] = (res.data || [])
+              .map((c: any) => ({
+                time: Math.floor(c[0] / 1000) as Time,
+                open: parseFloat(c[1]),
+                high: parseFloat(c[2]),
+                low: parseFloat(c[3]),
+                close: parseFloat(c[4]),
+              }))
+              .sort((a: any, b: any) => Number(a.time) - Number(b.time))
+            candleSeriesRef.current?.setData(candles)
+            chartRef.current?.timeScale().fitContent()
+          })
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
